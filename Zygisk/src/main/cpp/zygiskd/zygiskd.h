@@ -10,8 +10,7 @@
 #include "RootImp.h"
 #include "ksu.h"
 
-#define SECURE_DIR      "/data/adb"
-#define MODULEROOT      SECURE_DIR "/modules"
+
 
 
 

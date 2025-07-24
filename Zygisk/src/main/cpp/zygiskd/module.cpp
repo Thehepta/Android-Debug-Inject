@@ -9,8 +9,9 @@
 #include <dirent.h>
 #include <fcntl.h>
 #include <sstream>
-
+#include "module.h"
 #include "json.hpp"     // nlohmann/json 库
+#include "parse_args.h"
 
 // 使用 using 声明以方便使用
 using json = nlohmann::json;
@@ -128,9 +129,9 @@ json parse_module_prop_from_fd(int fd) {
 }
 
 
-void list_modules(std::string MODULEROOT){
+void list_modules(std::string root){
     json all_modules = json::array();
-    auto dir = opendir(MODULEROOT.c_str());
+    auto dir = opendir(root.c_str());
     if (!dir)
         return;
     int dfd = dirfd(dir);
@@ -159,7 +160,7 @@ void list_modules(std::string MODULEROOT){
 }
 void add_enable_module( std::string module_path,char * module_name,char* packageName){
 
-    std::string path = module_path+"/"+module_name+"/enbale_app";
+    std::string path = module_path+"/"+module_name+"/enable_app";
     std::fstream file;
     file.open(path, std::ios_base::in | std::ios_base::out | std::ios_base::app);
     if (!file.is_open()) {
@@ -167,4 +168,42 @@ void add_enable_module( std::string module_path,char * module_name,char* package
     }
     file << packageName << std::endl;
     file.close();
+}
+
+void module_help() {
+    fprintf(stderr,
+            R"EOF(Magisk - Multi-purpose Utility
+
+Usage: zygisk module <COMMAND>
+
+Commands:
+  install    Install module <ZIP>
+  uninstall  Uninstall module <id>
+  enable     enable module <id>
+  disable    disable module <id>
+  action     run action for module <id>
+  list       list all modules
+  add-enable   example( zygisk module --add-enable --module sample --package com.hepat.manager)
+  help       Print this message or the help of the given subcommand(s)
+
+)EOF");
+}
+
+
+void module_main(int argc, char **argv){
+    if(argc == 0){
+        module_help();
+        return;
+    }
+    ProgramArgs args;
+    module_parse_args(argc,argv, &args);
+    if(args.help){
+        module_help();
+    }else if(args.add_enable){
+        add_enable_module(MODULEROOT,args.module,args.package);
+
+    }else if(args.mod_list){
+        list_modules(MODULEROOT);
+    }
+
 }

@@ -24,6 +24,6 @@ set(CMAKE_CXX_STANDARD 23)
 
 #include_directories(../common)
 add_subdirectory(lsplt)
-add_library(zygisk SHARED clean.cpp elf_util.cpp entry.cpp hook.cpp module.cpp unmount.cpp)
+add_library(zygisk SHARED api.hpp art_method.hpp jni_helper.hpp jni_hooks.hpp module.hpp solist.hpp zygisk.hpp clean.cpp elf_util.cpp entry.cpp hook.cpp module.cpp unmount.cpp)
 target_link_libraries(zygisk  log common lsplt_static)
 

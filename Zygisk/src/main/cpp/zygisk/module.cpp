@@ -292,10 +292,24 @@ void ZygiskContext::run_modules_pre() {
     auto size = ms.size();
     for (size_t i = 0; i < size; i++) {
         auto &m = ms[i];
-        if (void *handle = DlopenMem(m.z64, RTLD_NOW);
-            void *entry = handle ? dlsym(handle, "zygisk_module_entry") : nullptr) {
-            modules.emplace_back(i, handle, entry);
+        int zyg_fd = m.z64;
+        struct stat s{};
+        if (fstat(zyg_fd, &s) != 0 || !S_ISREG(s.st_mode)) {
+            continue;
         }
+        auto info = android_dlextinfo{
+                .flags = ANDROID_DLEXT_USE_LIBRARY_FD,
+                .library_fd = zyg_fd
+        };
+        if (void *handle = android_dlopen_ext("/jit-cache", RTLD_LAZY, &info)) {
+            if( void * entry = dlsym(handle, "zygisk_module_entry")) {
+                modules.emplace_back(i, handle, entry);
+            }
+        }else {
+            LOGE("Failed to dlopen zygisk module: %s\n", dlerror());
+        }
+
+
     }
 
     for (auto &m : modules) {

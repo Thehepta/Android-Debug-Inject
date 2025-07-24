@@ -20,7 +20,7 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "Android-Debug-Inject"
-//include(":ADI")
-//include(":module")
+include(":ADI")
+include(":module")
 include(":Zygisk")
-//include(":ADILib")
+include(":ADILib")

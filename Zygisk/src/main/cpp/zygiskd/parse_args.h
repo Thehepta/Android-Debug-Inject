@@ -7,7 +7,13 @@
 
 
 enum {
-    OPT_SET_DB = 1000,
+    OPT = 1000,
+    OPT_MOD_LIST,
+    OPT_MOD_ADD_ENABLE,
+    OPT_MOD_ENABLE_MODULE,
+    OPT_MOD_ENABLE_PACKAGE,
+
+    OPT_SET_DB,
     OPT_SET_SOCKET,
 };
 
@@ -18,29 +24,28 @@ struct ProgramArgs {
     bool verbose;       // --verbose 或 -v
     bool start_daemon;
 
-    bool exe_sqlite;
     char *sql;
-    bool set_sqlite_db_path;
     char *sqlite_db_path;
-
-    bool set_unix_socket;
     char *unix_socket_path;
-
-
+    bool add_enable;
+    char* module;
+    char* package;
+    bool mod_list;
     ProgramArgs() {
+        mod_list = false;
         help = false;
         verbose = false;
         start_daemon = false;
-        exe_sqlite = false;
-
-        set_sqlite_db_path = false;
-        sqlite_db_path = "";
-        sql = "";
-        set_unix_socket = false;
-        unix_socket_path = "";
+        add_enable = false;
+        sqlite_db_path = nullptr;
+        module = nullptr;
+        package = nullptr;
+        sql = nullptr;
+        unix_socket_path = nullptr;
 
     }
 };
 
 
-void parse_args(int argc, char **argv, ProgramArgs *args);
+void daemon_parse_args(int argc, char **argv, ProgramArgs *args);
+void module_parse_args(int argc, char **argv, ProgramArgs *args);

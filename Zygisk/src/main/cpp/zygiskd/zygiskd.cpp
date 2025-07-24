@@ -14,6 +14,8 @@
 #include <fcntl.h>
 #include <sys/epoll.h>
 #include <poll.h>
+#include <asm-generic/unistd.h>
+#include <linux/memfd.h>
 #include "companion.h"
 #include "misc.hpp"
 #include "vector"
@@ -23,13 +25,23 @@
 #include "parse_args.h"
 #include "sqlite3.h"
 #include "module.h"
+#include<sys/sendfile.h>
 #define EPOLL_SIZE 10
 
 # define LOG_TAG "zygiskd"
 
 std::string exe_path ;
 
-
+int convert_to_memfd(int fd,char * name){
+    int memfd = syscall(__NR_memfd_create, "jit-cache", MFD_CLOEXEC);
+    if (memfd >= 0) {
+        sendfile(memfd, fd, nullptr, INT_MAX);
+        close(fd);
+    } else {
+        LOGE("zygiskd memfd_create: %s  failed",name);
+    }
+    return memfd;
+}
 
 void Zygiskd::foreach_module(int fd, dirent *entry, int modfd) {
     if (faccessat(modfd, "disable", F_OK, 0) == 0) {
@@ -44,9 +56,16 @@ void Zygiskd::foreach_module(int fd, dirent *entry, int modfd) {
     if (faccessat(modfd, "zygisk/arm64-v8a.so", F_OK, 0) != 0) {
         return;
     }
+    info.z32 = convert_to_memfd(info.z32,entry->d_name);
+    if( info.z32 == -1){
+        return;
+    }
     info.z64 = openat(modfd, "zygisk/arm64-v8a.so", O_RDONLY | O_CLOEXEC);
+    info.z64 = convert_to_memfd(info.z64,entry->d_name);
+    if( info.z64 == -1){
+        return;
+    }
     info.name = entry->d_name;
-
     module_list.push_back(info);
 
 }
@@ -248,7 +267,6 @@ void handle_daemon_action(int cmd, int fd) {
             break;
         }
         case (uint8_t) zygiskComm::SocketAction::ReadModules:{
-            LOGD("ReadModules");
             std::string nice_name = socket_utils::read_string(fd);
             std::vector<Module> modules =  Zygiskd::getInstance().getEnableModules(nice_name);
             uint8_t arch = socket_utils::read_u8(fd);
@@ -256,6 +274,7 @@ void handle_daemon_action(int cmd, int fd) {
             socket_utils::write_usize(fd,len);
 
             for (size_t i = 0; i < len; i++) {
+                LOGD("ReadModule enable %s ",modules[i].name.c_str());
                 socket_utils::write_string(fd,modules[i].name);
                 if(arch == 1){
                     socket_utils::send_fd(fd,modules[i].z64);
@@ -417,47 +436,34 @@ Available applets:
 int main(int argc, char *argv[]) {
     if (argc < 2)
         usage();
+
     if ((strcmp(argv[1], "companion") == 0) && (argc == 3)) {
         int fd = atoi(argv[2]);
         companion_entry(fd);
         return 0;
-    }else if ((strcmp(argv[1], "--sqlite") == 0) && (argc == 3)) {
+    }else if ((strcmp(argv[1], "sqlite") == 0) && (argc == 3)) {
         LOGI("exec sql:%s",argv[2]);
         exec_sql(argv[2]);
         return 0;
-    }else if ((strcmp(argv[1], "--install-module") == 0) && (argc == 3)) {
-        LOGI("exec sql:%s",argv[2]);
-        exec_sql(argv[2]);
+    }else if ((strcmp(argv[1], "module") == 0)) {
+        module_main(argc - 1, ++argv);
         return 0;
-    }else if ((strcmp(argv[1], "--list-module") == 0) && (argc == 2)) {
-        list_modules(MODULEROOT);
-        return 0;
-    }else if ((strcmp(argv[1], "--add-module-enable") == 0)) {
-        add_enable_module(MODULEROOT,argv[2],argv[3]);
-        return 0;
-    }
-    else {
+    }else if ((strcmp(argv[1], "daemon") == 0)) {
+
         ProgramArgs args;
-        parse_args(argc - 1, argv++, &args);
-        if(args.set_unix_socket){
+        daemon_parse_args(argc - 1, ++argv, &args);
+        if(args.unix_socket_path!= nullptr){
             zygiskComm::InitRequestorSocket(args.unix_socket_path);
         } else {
             zygiskComm::InitRequestorSocket("d63138f231");
         }
-        if(args.set_sqlite_db_path){
+        if(args.sqlite_db_path!= nullptr){
             set_sqlite3_db_path(args.sqlite_db_path);
         }
-        if(args.start_daemon){
-
-            exe_path = argv[0];
-            Zygiskd::getInstance().collect_modules();
-            Zygiskd::getInstance().rootImpInit();
-            zygiskd_main();
-        }
-        if(args.exe_sqlite){
-            LOGI("exec sql:%s",args.sql);
-            exec_sql(args.sql);
-        }
+        exe_path = argv[0];
+        Zygiskd::getInstance().collect_modules();
+        Zygiskd::getInstance().rootImpInit();
+        zygiskd_main();
         return 0;
     }
 

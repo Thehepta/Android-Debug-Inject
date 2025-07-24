@@ -122,7 +122,6 @@ bool RootImp::is_magisk_root(){
             return false;
         }
     } else {
-        printf("Magisk command is not available.\n");
         return false;
     }
     if(version <= 0){
