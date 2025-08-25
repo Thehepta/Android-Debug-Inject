@@ -7,8 +7,7 @@
 
 #include "string"
 
-#define SECURE_DIR      "/data/adb"
-#define MODULEROOT      SECURE_DIR "/modules"
+
 
 void module_main(int argc, char **argv);
 void list_modules(std::string );

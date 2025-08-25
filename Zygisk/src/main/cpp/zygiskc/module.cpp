@@ -9,9 +9,12 @@
 #include <dirent.h>
 #include <fcntl.h>
 #include <sstream>
+#include <sys/stat.h>
 #include "module.h"
 #include "json.hpp"     // nlohmann/json 库
 #include "parse_args.h"
+#include "files.hpp"
+#include "daemon.h"
 
 // 使用 using 声明以方便使用
 using json = nlohmann::json;
@@ -143,11 +146,9 @@ void list_modules(std::string root){
                 continue;
             }
             json module_prop = parse_module_prop_from_fd(prop_fd);
-            if (faccessat(modfd, "disable", F_OK, 0) == 0) {
-                module_prop["enable"]="false";
-            }
-            if (faccessat(modfd, "enable_app", F_OK, 0) == 0) {
-                int enable_app_fd = openat(modfd, "enable_app", O_RDONLY | O_CLOEXEC);
+            module_prop["dirName"] = entry->d_name;
+            if (faccessat(modfd, "zygisk/enable_app", F_OK, 0) == 0) {
+                int enable_app_fd = openat(modfd, "zygisk/enable_app", O_RDONLY | O_CLOEXEC);
                 std::string enable_app = parse_enable_app_from_fd(enable_app_fd);
                 module_prop["enable_app"]=enable_app;
             }
@@ -160,7 +161,7 @@ void list_modules(std::string root){
 }
 void add_enable_module( std::string module_path,char * module_name,char* packageName){
 
-    std::string path = module_path+"/"+module_name+"/enable_app";
+    std::string path = module_path+"/"+module_name+"/zygisk/enable_app";
     std::fstream file;
     file.open(path, std::ios_base::in | std::ios_base::out | std::ios_base::app);
     if (!file.is_open()) {
@@ -172,38 +173,76 @@ void add_enable_module( std::string module_path,char * module_name,char* package
 
 void module_help() {
     fprintf(stderr,
-            R"EOF(Magisk - Multi-purpose Utility
+            R"EOF(
 
-Usage: zygisk module <COMMAND>
+Usage: zygisk <COMMAND>
 
 Commands:
-  install    Install module <ZIP>
+  --unix_socket    Install module <ZIP>
+  -v --daemonInfo    Install module <ZIP>
+  -i --install    Install module <ZIP>
   uninstall  Uninstall module <id>
-  enable     enable module <id>
-  disable    disable module <id>
-  action     run action for module <id>
-  list       list all modules
-  add-enable   example( zygisk module --add-enable --module sample --package com.hepat.manager)
-  help       Print this message or the help of the given subcommand(s)
+  -l --list       list all modules
+  --add-enable   example( zygisk module --add-enable --module sample --package com.hepat.manager)
+  -h --help       Print this message or the help of the given subcommand(s)
 
 )EOF");
 }
 
+void install_modules(std::string root,std::string mod_tmp_path) {
 
-void module_main(int argc, char **argv){
+    std::string modules_id;
+    std::string prop = mod_tmp_path+"/module.prop";
+    if (access(prop.c_str(), F_OK) == 0) {
+        int prop_fd = open(prop.c_str(), O_RDONLY | O_CLOEXEC);
+        json module_prop = parse_module_prop_from_fd(prop_fd);
+        modules_id = module_prop.value("id","");
+    }
+    if(modules_id != ""){
+        std::string modules_path = root+"/"+modules_id;
+        if (access(modules_path.c_str(), F_OK) != 0) {
+            int result = mkdir(modules_path.c_str(), 0755);  // 权限 rwxr-xr-x
+        }
+        copy_directory(mod_tmp_path.c_str(),modules_path.c_str());
+
+    }else{
+        std::cerr << " mod_tmp_path is not zygisk module , not id in module.prop " ;
+    }
+
+}
+int main(int argc, char *argv[]) {
     if(argc == 0){
         module_help();
-        return;
+        return -1;
     }
     ProgramArgs args;
     module_parse_args(argc,argv, &args);
     if(args.help){
         module_help();
-    }else if(args.add_enable){
-        add_enable_module(MODULEROOT,args.module,args.package);
-
-    }else if(args.mod_list){
-        list_modules(MODULEROOT);
     }
 
+    if(args.unix_socket_path!= nullptr){
+        zygiskComm::InitRequestorSocket(args.unix_socket_path);
+    } else {
+        zygiskComm::InitRequestorSocket("d63138f231");
+    }
+    std::string version, model, RootDir;
+    if(zygiskComm::RequestRunInfo(version,model,RootDir)== -1){
+        std::cerr << "zygisk client request failed" ;
+        return 0;
+    }
+    if(args.daemonInfo){
+        std::cout << "version:"<< version <<std::endl ;
+        std::cout << "model:"  << model   <<std::endl ;
+        std::cout << "RootDir:"<< RootDir <<std::endl ;
+
+    }else if(args.add_enable){
+        add_enable_module(RootDir,args.module,args.package);
+    }else if(args.mod_list){
+        list_modules(RootDir);
+    }else if(args.mod_install){
+
+        install_modules(RootDir,args.mod_tmp_path);
+    }
+    return 0;
 }

@@ -109,27 +109,27 @@ namespace zygiskComm {
     }
 
 
-    void CacheMountNamespace(pid_t pid) {
+    int RequestRunInfo(std::string &version,std::string & model,std::string& RootDir) {
+        UniqueFd fd = Connect(1);
+        if (fd == -1) {
+            PLOGE("CacheMountNamespace");
+            return -1;
+        }
+        socket_utils::write_u8(fd, (uint8_t) SocketAction::RequestRunInfo);
+        version = socket_utils::read_string(fd);
+        model = socket_utils::read_string(fd);
+        RootDir = socket_utils::read_string(fd);
+        return 0;
+    }
+
+    std::string GetRootDir() {
         UniqueFd fd = Connect(1);
         if (fd == -1) {
             PLOGE("CacheMountNamespace");
         }
-        socket_utils::write_u8(fd, (uint8_t) SocketAction::CacheMountNamespace);
-        socket_utils::write_u32(fd, (uint32_t) pid);
-    }
-
-    std::string UpdateMountNamespace(MountNamespace type) {
-        UniqueFd fd = Connect(1);
-        if (fd == -1) {
-            PLOGE("UpdateMountNamespace");
-            return "";
-        }
-        socket_utils::write_u8(fd, (uint8_t) SocketAction::UpdateMountNamespace);
-        socket_utils::write_u8(fd, (uint8_t) type);
-        uint32_t target_pid = socket_utils::read_u32(fd);
-        int target_fd = (int) socket_utils::read_u32(fd);
-        if (target_fd == 0) return "";
-        return "/proc/" + std::to_string(target_pid) + "/fd/" + std::to_string(target_fd);
+        socket_utils::write_u8(fd, (uint8_t) SocketAction::GetRootDir);
+        std::string RootModule = socket_utils::read_string(fd);
+        return RootModule;
     }
 
 

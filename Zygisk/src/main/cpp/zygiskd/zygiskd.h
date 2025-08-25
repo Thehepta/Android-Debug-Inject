@@ -7,16 +7,12 @@
 
 #include <dirent.h>
 #include "daemon.h"
-#include "RootImp.h"
-#include "ksu.h"
 
 
 
 
-
-
-
-
+#define SECURE_DIR      "/data/adb"
+#define MODULEROOT      SECURE_DIR "/modules"
 
 class Zygiskd  {
 
@@ -35,14 +31,23 @@ public:
     std::string getModul_by_index(int index){
         return module_list.at(index).name;
     }
+    std::string getModuleRoot() {
+        return moduleRoot;
+    }
+    void setModuleRoot(std::string str){
+        moduleRoot = str;
+    }
+
+    void setModel(int md){
+        model = md;
+    }
+    int getModel(){
+        return model;
+    }
 
     Zygiskd(const Zygiskd&)= delete;
     Zygiskd& operator=(const Zygiskd)=delete;
     int getProcessFlags(uid_t uid,std::string nice_name);
-    static RootImp* getRootImp(){
-        return getInstance().rootImp;
-    }
-    void rootImpInit();
 private:
     Zygiskd(){
     }
@@ -50,8 +55,7 @@ private:
     }
     std::vector<Module> module_list;
     std::string moduleRoot;
-    bool running = false;
-    RootImp* rootImp;
+    bool model = false;
 };
 
 

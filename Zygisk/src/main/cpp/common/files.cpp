@@ -2,6 +2,7 @@
 
 #include "files.hpp"
 #include "misc.hpp"
+#include <sys/stat.h>
 
 using namespace std::string_view_literals;
 
@@ -119,4 +120,103 @@ sDIR make_dir(DIR *dp) {
 
 sFILE make_file(FILE *fp) {
     return sFILE(fp, [](FILE *fp){ return fp ? fclose(fp) : 1; });
+}
+
+
+// 工具函数：判断路径是否为目录
+int is_directory(const char *path) {
+    struct stat st;
+    return stat(path, &st) == 0 && S_ISDIR(st.st_mode);
+}
+
+// 工具函数：创建目录（递归）
+int mkdir_p(const char *path) {
+    char tmp[512];
+    char *p = NULL;
+    size_t len;
+
+    snprintf(tmp, sizeof(tmp), "%s", path);
+    len = strlen(tmp);
+    if (tmp[len - 1] == '/') tmp[len - 1] = '\0';
+
+    for (p = tmp + 1; *p; p++) {
+        if (*p == '/') {
+            *p = '\0';
+            if (mkdir(tmp, 0755) != 0 && errno != EEXIST) {
+                perror("mkdir");
+                return -1;
+            }
+            *p = '/';
+        }
+    }
+
+    if (mkdir(tmp, 0755) != 0 && errno != EEXIST) {
+        perror("mkdir");
+        return -1;
+    }
+
+    return 0;
+}
+
+// 复制文件（简单实现）
+int copy_file(const char *src, const char *dst) {
+    FILE *in = fopen(src, "rb");
+    FILE *out = fopen(dst, "wb");
+    if (!in || !out) {
+        if (in) fclose(in);
+        if (out) fclose(out);
+        return -1;
+    }
+
+    char buf[4096];
+    size_t n;
+    while ((n = fread(buf, 1, sizeof(buf), in)) > 0) {
+        if (fwrite(buf, 1, n, out) != n) {
+            fclose(in);
+            fclose(out);
+            return -1;
+        }
+    }
+
+    fclose(in);
+    fclose(out);
+    return 0;
+}
+
+// 递归复制目录
+int copy_directory(const char *src, const char *dst) {
+    DIR *dir = opendir(src);
+    if (!dir) return -1;
+
+    if (mkdir_p(dst) != 0) {
+        closedir(dir);
+        return -1;
+    }
+
+    struct dirent *entry;
+    char src_path[1024];
+    char dst_path[1024];
+
+    while ((entry = readdir(dir)) != NULL) {
+        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0)
+            continue;
+
+        snprintf(src_path, sizeof(src_path), "%s/%s", src, entry->d_name);
+        snprintf(dst_path, sizeof(dst_path), "%s/%s", dst, entry->d_name);
+
+        if (is_directory(src_path)) {
+            if (copy_directory(src_path, dst_path) != 0) {
+                closedir(dir);
+                return -1;
+            }
+        } else {
+            if (copy_file(src_path, dst_path) != 0) {
+                closedir(dir);
+                return -1;
+            }
+        }
+    }
+
+    closedir(dir);
+    return 0;
 }

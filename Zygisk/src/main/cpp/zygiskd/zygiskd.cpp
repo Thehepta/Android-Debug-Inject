@@ -9,7 +9,6 @@
 #include <vector>
 #include <linux/in.h>
 #include "socket_utils.h"
-#include "RootImp.h"
 #include <thread>
 #include <fcntl.h>
 #include <sys/epoll.h>
@@ -19,12 +18,7 @@
 #include "companion.h"
 #include "misc.hpp"
 #include "vector"
-#include "ksu.h"
-#include "apatch.h"
-#include "magisk.h"
-#include "parse_args.h"
-#include "sqlite3.h"
-#include "module.h"
+#include "daemon_parse_args.h"
 #include<sys/sendfile.h>
 #define EPOLL_SIZE 10
 
@@ -53,11 +47,13 @@ void Zygiskd::foreach_module(int fd, dirent *entry, int modfd) {
         return;
     }
     info.z32 = openat(modfd, "zygisk/armeabi-v7a.so", O_RDONLY | O_CLOEXEC);
-    if (faccessat(modfd, "zygisk/arm64-v8a.so", F_OK, 0) != 0) {
-        return;
-    }
     info.z32 = convert_to_memfd(info.z32,entry->d_name);
     if( info.z32 == -1){
+        return;
+    }
+
+
+    if (faccessat(modfd, "zygisk/arm64-v8a.so", F_OK, 0) != 0) {
         return;
     }
     info.z64 = openat(modfd, "zygisk/arm64-v8a.so", O_RDONLY | O_CLOEXEC);
@@ -70,9 +66,18 @@ void Zygiskd::foreach_module(int fd, dirent *entry, int modfd) {
 
 }
 
+
+
 void Zygiskd::collect_modules() {
-    moduleRoot = MODULEROOT;
-    auto dir = opendir(MODULEROOT);
+
+    if(module_list.size()>0){
+        for(Module m:module_list){
+            close(m.z64);
+            close(m.z32);
+        }
+        module_list.clear();
+    }
+    auto dir = opendir(moduleRoot.c_str());
     if (!dir)
         return;
     int dfd = dirfd(dir);
@@ -87,161 +92,50 @@ void Zygiskd::collect_modules() {
 }
 
 
-void Zygiskd::rootImpInit() {
-    const char *kernelsu = getenv("KSU");
-    if (kernelsu != nullptr) {
-        LOGD("Detected KernelSU (Version: %s)\n", kernelsu);
-        rootImp = new ksu();
-        rootImp->init();
-//        root_imp = PROCESS_ROOT_IS_KSU;
-    }
-    const char *apd = getenv("APATCH");
-    if (apd != nullptr) {
-        LOGD("Detected APATCH (Version: %s)\n", apd);
-        rootImp = new apatch();
-        rootImp->init();
-
-//        root_imp = PROCESS_ROOT_IS_APATCH;
-
-    }
-    if (RootImp::is_magisk_root()) {
-        LOGD("Detected MAGISK\n");
-        rootImp = new magisk();
-        rootImp->init();
-
-//        root_imp = PROCESS_ROOT_IS_MAGISK;
-
-    }
-}
 
 int Zygiskd::getProcessFlags(uid_t uid,std::string nice_name) {
-    exec_sql("");
+//    exec_sql("");
     return 0;
 }
+
 std::vector<Module> Zygiskd::getEnableModules(std::string processName){
 
-    std::vector<Module> enbale_vec;
-    size_t len = module_list.size();
-    char file_path[4096];
-    for (size_t i = 0; i < len; i++) {
-        Module m = module_list[i];
-        ssprintf(file_path, sizeof(file_path), MODULEROOT "/%s/disable", m.name.c_str());
-        if(access(file_path, F_OK) == 0){
-            continue;
-        }
-        ssprintf(file_path, sizeof(file_path), MODULEROOT "/%s/enable_app", m.name.c_str());
-        FILE *file = fopen(file_path, "r");
-        if (file == NULL) {
-            continue;
-        }
-
-        char *line = NULL; // **重要**：初始化为 NULL，让 getline 自动分配内存
-        size_t len = 0;    // **重要**：初始化为 0
-        ssize_t read;      // 用于接收 getline 的返回值
-        int line_number = 0;
-        while ((read = getline(&line, &len, file)) != -1) {
-            line_number++;
-
-            // 可选：移除行末的换行符
-            if (read > 0 && line[read - 1] == '\n') {
-                line[read - 1] = '\0';
+    if(model){
+        std::vector<Module> enbale_vec;
+        size_t len = module_list.size();
+        char file_path[4096];
+        for (size_t i = 0; i < len; i++) {
+            Module m = module_list[i];
+            ssprintf(file_path, sizeof(file_path),  "%s/%s/zygisk/enable_app",getModuleRoot().c_str(), m.name.c_str());
+            FILE *file = fopen(file_path, "r");
+            if (file == NULL) {
+                continue;
             }
+            char *line = NULL; // **重要**：初始化为 NULL，让 getline 自动分配内存
+            size_t len = 0;    // **重要**：初始化为 0
+            ssize_t read;      // 用于接收 getline 的返回值
+            int line_number = 0;
+            while ((read = getline(&line, &len, file)) != -1) {
+                line_number++;
 
-            if (strstr(line, processName.c_str()) != NULL) {
-                enbale_vec.push_back(m);
+                // 可选：移除行末的换行符
+                if (read > 0 && line[read - 1] == '\n') {
+                    line[read - 1] = '\0';
+                }
+
+                if (strstr(line, processName.c_str()) != NULL) {
+                    enbale_vec.push_back(m);
+                }
             }
+            if(line){
+                free(line);
+            }
+            fclose(file);
         }
-        if(line){
-            free(line);
-        }
-        fclose(file);
+        return enbale_vec;
+    } else{
+       return module_list;
     }
-    return enbale_vec;
-
-}
-
-
-// The following code runs in magiskd
-
-static std::vector<int> get_module_fds(bool is_64_bit) {
-    std::vector<int> fds;
-    // All fds passed to send_fds have to be valid file descriptors.
-    // To workaround this issue, send over STDOUT_FILENO as an indicator of an
-    // invalid fd as it will always be /dev/null in magiskd
-    auto module_list = Zygiskd::getInstance().getModule_list();
-#if defined(__LP64__)
-    if (is_64_bit) {
-        std::transform(module_list.begin(), module_list.end(), std::back_inserter(fds),
-                       [](const Module &info) { return info.z64 < 0 ? STDOUT_FILENO : info.z64; });
-    } else
-#endif
-    {
-        std::transform(module_list.begin(), module_list.end(), std::back_inserter(fds),
-                       [](const Module &info) { return info.z32 < 0 ? STDOUT_FILENO : info.z32; });
-    }
-    return fds;
-}
-
-
-static pthread_mutex_t zygiskd_lock = PTHREAD_MUTEX_INITIALIZER;
-static int zygiskd_sockets[] = {-1, -1};
-
-
-#define zygiskd_socket zygiskd_sockets[is_64_bit]
-
-static void connect_companion(int client, bool is_64_bit) {
-    mutex_guard g(zygiskd_lock);
-
-    if (zygiskd_socket >= 0) {
-        // Make sure the socket is still valid
-        pollfd pfd = {zygiskd_socket, 0, 0};
-        poll(&pfd, 1, 0);
-        if (pfd.revents) {
-            // Any revent means error
-            close(zygiskd_socket);
-            zygiskd_socket = -1;
-        }
-    }
-    if (zygiskd_socket < 0) {
-        int fds[2];
-        socketpair(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0, fds);
-        zygiskd_socket = fds[0];
-        if (fork_dont_care() == 0) {
-#if defined(__LP64__)
-            std::string exe = exe_path;
-#else
-            std::string exe = exe_path+"32";
-#endif
-            // This fd has to survive exec
-            fcntl(fds[1], F_SETFD, 0);
-            char buf[16];
-            ssprintf(buf, sizeof(buf), "%d", fds[1]);
-            LOGD("zygiskd startup companion %s", exe.c_str());
-            execl(exe.c_str(), "zygiskd", "companion", buf, (char *) nullptr);
-            exit(-1);
-        }
-        close(fds[1]);
-        std::vector<int> module_fds = get_module_fds(is_64_bit);
-        socket_utils::send_fds(zygiskd_socket, module_fds.data(), module_fds.size());
-        // Wait for ack
-        if (socket_utils::read_u32(zygiskd_socket) != 0) {
-            LOGE("zygiskd startup error\n");
-            return;
-        }
-    }
-    socket_utils::send_fd(zygiskd_socket, client);
-}
-
-
-static void get_moddir(int client) {
-    size_t index = socket_utils::read_usize(client);
-    auto moduleDir = Zygiskd::getInstance().getModul_by_index(index);
-    char buf[4096];
-    ssprintf(buf, sizeof(buf), MODULEROOT "/%s", moduleDir.c_str());
-    int dfd = open(buf, O_RDONLY | O_CLOEXEC);
-    socket_utils::send_fd(client, dfd);
-    close(dfd);
-    LOGD("get_moddir:%s", buf);
 
 }
 
@@ -288,12 +182,18 @@ void handle_daemon_action(int cmd, int fd) {
         case (uint8_t) zygiskComm::SocketAction::RequestCompanionSocket: {
             LOGD("RequestCompanionSocket");
             uint32_t arch = socket_utils::read_u32(fd);
-            connect_companion(fd, arch);
+            connect_companion(fd, arch,exe_path);
             break;
         }
         case (uint8_t) zygiskComm::SocketAction::GetModuleDir:
             LOGD("GetModuleDir");
-            get_moddir(fd);
+            size_t index = socket_utils::read_usize(fd);
+            auto moduleDir = Zygiskd::getInstance().getModul_by_index(index);
+            char buf[4096];
+            ssprintf(buf, sizeof(buf),  "%s/%s",Zygiskd::getInstance().getModuleRoot().c_str(), moduleDir.c_str());
+            int dfd = open(buf, O_RDONLY | O_CLOEXEC);
+            socket_utils::send_fd(fd, dfd);
+            close(dfd);
             break;
     }
 
@@ -306,16 +206,14 @@ void zygiskd_handle(int client_fd) {
         case (uint8_t) zygiskComm::SocketAction::PingHeartBeat:
             LOGD("HandleEvent PingHeartBeat");
             break;
-        case (uint8_t) zygiskComm::SocketAction::CacheMountNamespace: {
-            pid_t pid = socket_utils::read_u32(client_fd);
-            Zygiskd::getInstance().getRootImp()->cache_mount_namespace(pid);
+        case (uint8_t) zygiskComm::SocketAction::RequestRunInfo: {
+            socket_utils::write_string(client_fd,"version:text");
+            socket_utils::write_string(client_fd,"enfore");
+            socket_utils::write_string(client_fd,Zygiskd::getInstance().getModuleRoot());
+            break;
         }
-        case (uint8_t) zygiskComm::SocketAction::UpdateMountNamespace: {
-            zygiskComm::MountNamespace type = static_cast<zygiskComm::MountNamespace>(socket_utils::read_u8(
-                    client_fd));
-            int fd = Zygiskd::getInstance().getRootImp()->update_mount_namespace(type);
-            socket_utils::write_u32(client_fd, getpid());
-            socket_utils::write_u32(client_fd, fd);
+        case (uint8_t) zygiskComm::SocketAction::GetRootDir: {
+            socket_utils::write_string(client_fd,Zygiskd::getInstance().getModuleRoot());
             break;
         }
 
@@ -339,9 +237,7 @@ void zygiskd_main() {
     int client_fd;
     int epfd;
 
-
     int server_fd = socket(AF_UNIX, SOCK_STREAM, 0);
-
     if (server_fd < 0) {
         LOGE("Create Socket Errors, %d", server_fd);
         exit(server_fd);
@@ -402,32 +298,20 @@ void usage() {
     fprintf(stderr,
             R"EOF(Magisk - Multi-purpose Utility
 
-Usage: magisk [applet [arguments]...]
-   or: magisk [options]...
+Usage: zygiskd [options]  [arguments]
 
 Options:
-   -c                        print current binary version
-   -v                        print running daemon version
+   daemon                    print current binary version
+   companion                 print running daemon version
    -V                        print running daemon version code
-   --list                    list all available applets
-   --remove-modules [-n]     remove all modules, reboot if -n is not provided
-   --install-module ZIP      install a module zip file
+
 
 Advanced Options (Internal APIs):
-   --daemon                  manually start magisk daemon
-   --stop                    remove all magisk changes and stop daemon
-   --[init trigger]          callback on init triggers. Valid triggers:
-                             post-fs-data, service, boot-complete, zygote-restart
-   --unlock-blocks           set BLKROSET flag to OFF for all block devices
-   --restorecon              restore selinux context on Magisk files
-   --clone-attr SRC DEST     clone permission, owner, and selinux context
-   --clone SRC DEST          clone SRC to DEST
-   --sqlite SQL              exec SQL commands to Magisk database
-   --path                    print Magisk tmpfs mount path
-   --denylist ARGS           denylist config CLI
-   --preinit-device          resolve a device to store preinit files
-
-Available applets:
+   --help                   manually start magisk daemon
+   --verbose                remove all magisk changes and stop daemon
+   --model                  callback on init triggers. Valid triggers:
+   --rootdir                set BLKROSET flag to OFF for all block devices
+   --unix_socket            restore selinux context on Magisk files
 )EOF");
 
     fprintf(stderr, "\n\n");
@@ -436,35 +320,30 @@ Available applets:
 int main(int argc, char *argv[]) {
     if (argc < 2)
         usage();
-
+    exe_path = argv[0];
     if ((strcmp(argv[1], "companion") == 0) && (argc == 3)) {
         int fd = atoi(argv[2]);
         companion_entry(fd);
         return 0;
-    }else if ((strcmp(argv[1], "sqlite") == 0) && (argc == 3)) {
-        LOGI("exec sql:%s",argv[2]);
-        exec_sql(argv[2]);
-        return 0;
-    }else if ((strcmp(argv[1], "module") == 0)) {
-        module_main(argc - 1, ++argv);
-        return 0;
-    }else if ((strcmp(argv[1], "daemon") == 0)) {
+    }
 
-        ProgramArgs args;
+
+    if ((strcmp(argv[1], "daemon") == 0)) {
+        DaemonProgramArgs args;
         daemon_parse_args(argc - 1, ++argv, &args);
         if(args.unix_socket_path!= nullptr){
             zygiskComm::InitRequestorSocket(args.unix_socket_path);
         } else {
             zygiskComm::InitRequestorSocket("d63138f231");
         }
-        if(args.sqlite_db_path!= nullptr){
-            set_sqlite3_db_path(args.sqlite_db_path);
+        if(args.rootdir_path != nullptr){
+            Zygiskd::getInstance().setModuleRoot(args.rootdir_path);
+        } else {
+            Zygiskd::getInstance().setModuleRoot(MODULEROOT);
         }
-        exe_path = argv[0];
+        Zygiskd::getInstance().setModel(args.model);
         Zygiskd::getInstance().collect_modules();
-        Zygiskd::getInstance().rootImpInit();
         zygiskd_main();
-        return 0;
     }
 
 

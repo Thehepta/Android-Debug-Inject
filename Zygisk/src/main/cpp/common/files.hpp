@@ -30,7 +30,8 @@ using sFILE = std::unique_ptr<FILE, decltype(&fclose)>;
 using sDIR = std::unique_ptr<DIR, decltype(&closedir)>;
 sDIR make_dir(DIR *dp);
 sFILE make_file(FILE *fp);
-
+int copy_file(const char *src, const char *dst) ;
+int copy_directory(const char *src, const char *dst) ;
 static inline sDIR open_dir(const char *path) {
     return make_dir(opendir(path));
 }

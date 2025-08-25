@@ -58,6 +58,7 @@ androidComponents.onVariants { variant ->
         }
         into("bin"){
             from(project(":Zygisk").layout.buildDirectory.file("intermediates/cmake/$variantLowered/obj/arm64-v8a/zygiskd"))
+            from(project(":Zygisk").layout.buildDirectory.file("intermediates/cmake/$variantLowered/obj/arm64-v8a/zygiskc"))
             from(project(":ADI").layout.buildDirectory.file("intermediates/cmake/$variantLowered/obj/arm64-v8a/adi"))
 
         }

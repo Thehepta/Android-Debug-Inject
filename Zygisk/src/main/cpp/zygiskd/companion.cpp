@@ -20,6 +20,8 @@
 #include <poll.h>
 #include <android/dlext.h>
 #include "dl.h"
+#include "zygiskd.h"
+#include "misc.hpp"
 #include <vector>
 #include <thread>
 
@@ -131,4 +133,73 @@ void companion_entry(int socket) {
         }
     }
 
+}
+
+static std::vector<int> get_module_fds(bool is_64_bit) {
+    std::vector<int> fds;
+    // All fds passed to send_fds have to be valid file descriptors.
+    // To workaround this issue, send over STDOUT_FILENO as an indicator of an
+    // invalid fd as it will always be /dev/null in magiskd
+    auto module_list = Zygiskd::getInstance().getModule_list();
+#if defined(__LP64__)
+    if (is_64_bit) {
+        std::transform(module_list.begin(), module_list.end(), std::back_inserter(fds),
+                       [](const Module &info) { return info.z64 < 0 ? STDOUT_FILENO : info.z64; });
+    } else
+#endif
+    {
+        std::transform(module_list.begin(), module_list.end(), std::back_inserter(fds),
+                       [](const Module &info) { return info.z32 < 0 ? STDOUT_FILENO : info.z32; });
+    }
+    return fds;
+}
+
+
+static pthread_mutex_t zygiskd_lock = PTHREAD_MUTEX_INITIALIZER;
+static int zygiskd_sockets[] = {-1, -1};
+
+
+#define zygiskd_socket zygiskd_sockets[is_64_bit]
+
+void connect_companion(int client, bool is_64_bit,std::string exe_path) {
+    mutex_guard g(zygiskd_lock);
+
+    if (zygiskd_socket >= 0) {
+        // Make sure the socket is still valid
+        pollfd pfd = {zygiskd_socket, 0, 0};
+        poll(&pfd, 1, 0);
+        if (pfd.revents) {
+            // Any revent means error
+            close(zygiskd_socket);
+            zygiskd_socket = -1;
+        }
+    }
+    if (zygiskd_socket < 0) {
+        int fds[2];
+        socketpair(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0, fds);
+        zygiskd_socket = fds[0];
+        if (fork_dont_care() == 0) {
+#if defined(__LP64__)
+            std::string exe = exe_path;
+#else
+            std::string exe = exe_path+"32";
+#endif
+            // This fd has to survive exec
+            fcntl(fds[1], F_SETFD, 0);
+            char buf[16];
+            ssprintf(buf, sizeof(buf), "%d", fds[1]);
+            LOGD("zygiskd startup companion %s", exe.c_str());
+            execl(exe.c_str(), "zygiskd", "companion", buf, (char *) nullptr);
+            exit(-1);
+        }
+        close(fds[1]);
+        std::vector<int> module_fds = get_module_fds(is_64_bit);
+        socket_utils::send_fds(zygiskd_socket, module_fds.data(), module_fds.size());
+        // Wait for ack
+        if (socket_utils::read_u32(zygiskd_socket) != 0) {
+            LOGE("zygiskd startup error\n");
+            return;
+        }
+    }
+    socket_utils::send_fd(zygiskd_socket, client);
 }

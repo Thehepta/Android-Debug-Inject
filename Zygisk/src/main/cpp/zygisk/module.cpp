@@ -443,22 +443,3 @@ void ZygiskContext::nativeForkAndSpecialize_post() {
 }
 
 // -----------------------------------------------------------------
-
-bool update_mount_namespace(zygiskComm::MountNamespace namespace_type) {
-    std::string ns_path = zygiskComm::UpdateMountNamespace(namespace_type);
-    if (!ns_path.starts_with("/proc/")) {
-        PLOGE("update mount namespace [%s]", ns_path.data());
-        return false;
-    }
-
-    auto updated_ns = open(ns_path.data(), O_RDONLY);
-    if (updated_ns >= 0) {
-        LOGD("set mount namespace to [%s] fd=[%d]\n", ns_path.data(), updated_ns);
-        setns(updated_ns, CLONE_NEWNS);
-    } else {
-        PLOGE("open mount namespace [%s]", ns_path.data());
-        return false;
-    }
-    close(updated_ns);
-    return true;
-}

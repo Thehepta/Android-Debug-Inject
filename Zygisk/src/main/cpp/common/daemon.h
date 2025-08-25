@@ -39,7 +39,6 @@ private:
 
 struct Module {
     std::string name;
-    int companion;
     int z32 = -1;
     int z64 = -1;
 
@@ -51,8 +50,8 @@ namespace zygiskComm {
         PingHeartBeat ,
         RequestLogcatFd,
         GetProcessFlags,
-        CacheMountNamespace,
-        UpdateMountNamespace,
+        RequestRunInfo,
+        GetRootDir,
         ReadModules,
         RequestCompanionSocket,
         GetModuleDir,
@@ -75,6 +74,10 @@ namespace zygiskComm {
     uint32_t GetProcessFlags(uid_t uid,std::string nice_name);
 
     std::string UpdateMountNamespace(MountNamespace type);
+
+    std::string GetRootDir() ;
+
+    int RequestRunInfo(std::string &version,std::string & model,std::string& RootDir) ;
 
     int ConnectCompanion(size_t index);
 

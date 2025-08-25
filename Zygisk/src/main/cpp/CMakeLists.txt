@@ -20,7 +20,8 @@ set(CMAKE_CXX_STANDARD 23)
 # so that we will find TutorialConfig.h
 
 # add the executable
-add_subdirectory(zygisk)
+#add_subdirectory(zygisk)
 add_subdirectory(zygiskd)
+add_subdirectory(zygiskc)
 add_subdirectory(common)
 

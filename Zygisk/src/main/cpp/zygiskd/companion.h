@@ -6,4 +6,5 @@
 #define ALINUX_DEBUG_INJECT_COMPANION_H
 
 void companion_entry(int fd);
+void connect_companion(int client, bool is_64_bit,std::string exe_path) ;
 #endif //ALINUX_DEBUG_INJECT_COMPANION_H

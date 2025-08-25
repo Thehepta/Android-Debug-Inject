@@ -49,7 +49,7 @@ export LIB_ZYGISK_SO_PATH=/data/adb/modules/zygiskADI/lib/arm64-v8a/libzygisk.so
 
 #  must usr &
 #  must usr &
-./bin/zygiskd daemon &
+./bin/zygiskd daemon --model 0 &
 #./bin/adi -m -c   $MODDIR/zygisk3.json &
 ./bin/adi  -m  -p 1 --exec /system/bin/app_process64  --injectSoPath $LIB_ZYGISK_SO_PATH --injectFunSym entry --injectFunArg d63138f231 --monitorCount 10&
 

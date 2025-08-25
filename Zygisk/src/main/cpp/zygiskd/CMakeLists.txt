@@ -26,6 +26,6 @@ set(CMAKE_CXX_STANDARD 23)
 
 #aux_source_directory(. ZYGISKD_SRC_LIST)
 #add_executable(zygiskd ${ZYGISKD_SRC_LIST})
-add_executable(zygiskd apatch.cpp companion.cpp ksu.cpp magisk.cpp module.cpp parse_args.cpp RootImp.cpp sqlite3.cpp zygiskd.cpp)
+add_executable(zygiskd  companion.cpp daemon_parse_args.cpp sqlite3.cpp zygiskd.cpp)
 target_link_libraries(zygiskd log common)
 
