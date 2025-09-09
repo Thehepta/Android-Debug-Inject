@@ -64,17 +64,17 @@
 
 int RootImp::getProcessFlags(uid_t uid){
     int flag = 0;
-    if(uid_is_manager(uid)){
-        flag|=PROCESS_IS_MANAGER;
-    } else{
-        if(uid_granted_root(uid)) {
-            flag|=PROCESS_GRANTED_ROOT;
-        }
-        if (uid_should_umount(uid)) {
-            flag |= PROCESS_ON_DENYLIST;
-        }
-    }
-    return flag | getRootFlags(uid);
+//    if(uid_is_manager(uid)){
+//        flag|=PROCESS_IS_MANAGER;
+//    } else{
+//        if(uid_granted_root(uid)) {
+//            flag|=PROCESS_GRANTED_ROOT;
+//        }
+//        if (uid_should_umount(uid)) {
+//            flag |= PROCESS_ON_DENYLIST;
+//        }
+//    }
+    return flag;
 }
 
 

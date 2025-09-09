@@ -21,17 +21,31 @@
 #include "apatch.h"
 #include "magisk.h"
 #include "parse_args.h"
+#include <sys/mman.h>
+#include <sys/sendfile.h>
+#include <asm-generic/unistd.h>
 
 #define EPOLL_SIZE 10
 
 # define LOG_TAG "zygiskd"
 
-void Zygiskd::foreach_module(int fd,dirent *entry,int modfd){
+int convert_to_memfd(int fd,char * name){
+    int memfd = syscall(__NR_memfd_create, "jit-cache", MFD_CLOEXEC);
+    if (memfd >= 0) {
+        sendfile(memfd, fd, nullptr, INT_MAX);
+        close(fd);
+    } else {
+        LOGE("zygiskd memfd_create: %s  failed",name);
+    }
+    return memfd;
+}
+
+void Zygiskd::foreach_module(int fd, dirent *entry, int modfd) {
     if (faccessat(modfd, "disable", F_OK, 0) == 0) {
         return;
     }
     Module info;
-    LOGD("enable_module:%s",entry->d_name);
+    LOGD("enable_module:%s", entry->d_name);
     if (faccessat(modfd, "zygisk/armeabi-v7a.so", F_OK, 0) != 0) {
         return;
     }
@@ -39,9 +53,16 @@ void Zygiskd::foreach_module(int fd,dirent *entry,int modfd){
     if (faccessat(modfd, "zygisk/arm64-v8a.so", F_OK, 0) != 0) {
         return;
     }
+    info.z32 = convert_to_memfd(info.z32,entry->d_name);
+    if( info.z32 == -1){
+        return;
+    }
     info.z64 = openat(modfd, "zygisk/arm64-v8a.so", O_RDONLY | O_CLOEXEC);
+    info.z64 = convert_to_memfd(info.z64,entry->d_name);
+    if( info.z64 == -1){
+        return;
+    }
     info.name = entry->d_name;
-
     module_list.push_back(info);
 
 }
@@ -90,76 +111,6 @@ void Zygiskd::rootImpInit() {
 //        root_imp = PROCESS_ROOT_IS_MAGISK;
 
     }
-}
-
-
-// The following code runs in magiskd
-
-static std::vector<int> get_module_fds(bool is_64_bit) {
-    std::vector<int> fds;
-    // All fds passed to send_fds have to be valid file descriptors.
-    // To workaround this issue, send over STDOUT_FILENO as an indicator of an
-    // invalid fd as it will always be /dev/null in magiskd
-    auto module_list = Zygiskd::getInstance().getModule_list();
-#if defined(__LP64__)
-    if (is_64_bit) {
-        std::transform(module_list.begin(), module_list.end(), std::back_inserter(fds),
-                       [](const Module &info) { return info.z64 < 0 ? STDOUT_FILENO : info.z64; });
-    } else
-#endif
-    {
-        std::transform(module_list.begin(), module_list.end(), std::back_inserter(fds),
-                       [](const Module &info) { return info.z32 < 0 ? STDOUT_FILENO : info.z32; });
-    }
-    return fds;
-}
-
-
-static pthread_mutex_t zygiskd_lock = PTHREAD_MUTEX_INITIALIZER;
-static int zygiskd_sockets[] = { -1, -1 };
-#define zygiskd_socket zygiskd_sockets[is_64_bit]
-
-static void connect_companion(int client, bool is_64_bit) {
-    mutex_guard g(zygiskd_lock);
-
-    if (zygiskd_socket >= 0) {
-        // Make sure the socket is still valid
-        pollfd pfd = { zygiskd_socket, 0, 0 };
-        poll(&pfd, 1, 0);
-        if (pfd.revents) {
-            // Any revent means error
-            close(zygiskd_socket);
-            zygiskd_socket = -1;
-        }
-    }
-    if (zygiskd_socket < 0) {
-        int fds[2];
-        socketpair(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0, fds);
-        zygiskd_socket = fds[0];
-        if (fork_dont_care() == 0) {
-#if defined(__LP64__)
-            std::string exe = Zygiskd::getInstance().get_exec_path();
-#else
-            std::string exe = Zygiskd::getInstance().get_exec_path()+"32";
-#endif
-            // This fd has to survive exec
-            fcntl(fds[1], F_SETFD, 0);
-            char buf[16];
-            ssprintf(buf, sizeof(buf), "%d", fds[1]);
-            LOGD("zygiskd startup companion %s",exe.c_str());
-            execl(exe.c_str(), "zygiskd","companion", buf, (char *) nullptr);
-            exit(-1);
-        }
-        close(fds[1]);
-        std::vector<int> module_fds = get_module_fds(is_64_bit);
-        socket_utils::send_fds(zygiskd_socket, module_fds.data(), module_fds.size());
-        // Wait for ack
-        if (socket_utils::read_u32(zygiskd_socket) != 0) {
-            LOGE("zygiskd startup error\n");
-            return;
-        }
-    }
-    socket_utils::send_fd(zygiskd_socket, client);
 }
 
 
@@ -336,37 +287,11 @@ int main(int argc, char *argv[]) {
             int fd = atoi(argv[2]);
             companion_entry(fd);
             return 0;
-        }
-
-        else if (strcmp(argv[1], "version") == 0) {
-
-            return 0;
-        }
-
-        else if (strcmp(argv[1], "root") == 0) {
-//            root_impls_setup();
-//
-//            struct root_impl impl;
-//            get_impl(&impl);
-//
-//            char impl_name[LONGEST_ROOT_IMPL_NAME];
-//            stringify_root_impl_name(impl, impl_name);
-//
-//            LOGI("Root implementation: %s\n", impl_name);
-            return 0;
-        }
-//        else if (strcmp(argv[1], "unix_socket") == 0) {
-//            zygiskd_main(argv[0],argv[2]);
-//            return 0;
-//        }
-        else {
-            ProgramArgs args;
-            parse_args(argc-1,argv++,&args);
+        }else {
+            zygiskd_main(argv[0],argv[2]);
             LOGI("Usage: zygiskd [companion|version|root|unix_socket]\n");
             return 0;
         }
     }
-
-
     return 0;
 }

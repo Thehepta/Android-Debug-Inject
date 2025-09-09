@@ -17,7 +17,6 @@
 
 
 
-void zygiskd_main(const char *);
 
 
 class Zygiskd  {

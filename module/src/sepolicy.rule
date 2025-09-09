@@ -14,3 +14,5 @@ allow system_server system_server process execmem
 allow zygote tmpfs file *
 allow zygote appdomain_tmpfs file *
 allow zygote su unix_stream_socket *
+allow zygote magisk unix_stream_socket *
+

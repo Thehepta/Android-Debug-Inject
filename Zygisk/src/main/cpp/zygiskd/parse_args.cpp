@@ -98,19 +98,6 @@ bool parse_args(int argc, char **argv, ProgramArgs *args) {
         }
     }
 
-    if (args->monitor == args->inject) {
-        LOGE("--monitor or --inject arg error");
-        return false;
-
-    }
-    if(is_config){
-        return true;
-    }
-    if(args->pid == -1){
-        LOGE("error,pid is -1");
-        return false;
-    }
-
 
     return true;
 }
